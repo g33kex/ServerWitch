@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode::Char;
-use crossterm::event::{EventStream, KeyEvent, KeyEventKind};
+use crossterm::event::{EventStream, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::ExecutableCommand;
 use futures_channel::mpsc::Receiver;
 use futures_channel::oneshot::Sender;
@@ -189,6 +189,11 @@ fn update(app: &mut App, terminal: &mut Terminal<impl Backend>, event: Event) {
         Event::Key(key) => match key.code {
             Char('q') => {
                 app.should_quit = true;
+            }
+            Char('c') => {
+                if key.modifiers == KeyModifiers::CONTROL {
+                    app.should_quit = true;
+                }
             }
             Char('y') => {
                 if let Some((id, mut action, tx)) = app.pending_actions.pop_front() {
