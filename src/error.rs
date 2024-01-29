@@ -1,3 +1,4 @@
+///! Errors used in this crate
 use std::string::FromUtf8Error;
 use thiserror::Error;
 use tokio_tungstenite::tungstenite::Message;

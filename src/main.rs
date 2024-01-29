@@ -16,6 +16,7 @@ const CHANNEL_SIZE: usize = 100;
 
 /// The Cli arguments
 #[derive(Parser, Debug)]
+#[clap(author = "g33kex, g33kex@pm.me", version = env!("CARGO_PKG_VERSION"), about = "Let an AI remotely control your computer", long_about = None)]
 struct Cli {
     /// The URL of the ServerWitch relay server
     #[arg(short, long, default_value_t = url::Url::parse(SERVER_URL).expect("Failed to parse default server URL"))]
