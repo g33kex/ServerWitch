@@ -6,10 +6,13 @@ This project is compatible with the Server Witch custom GPT, available on the [G
 
 ## How to Use
 
-1. Download the `serverwitch` executable onto the machine you wish to control with ChatGPT.
-2. Run the executable; it will display a session ID.
-3. Provide this session ID to the Server Witch custom GPT.
-4. Ask the GPT to configure your server. Here are some suggestions:
+```
+curl -s https://raw.githubusercontent.com/g33kex/ServerWitch/main/run.sh | sh
+```
+
+1. This command downloads and runs the executable, which will print a session ID.
+2. Provide this session ID to the Server Witch custom GPT.
+3. Ask the GPT to configure your server. Here are some suggestions:
     * Install Apache and set up a test webpage on port 8080.
     * List all installed packages on the server.
     * Determine who is currently connected to the machine.
