@@ -1,5 +1,9 @@
 # Server Witch
 
+<p align="center">
+  <img width="40%" src="logo.png">
+</p>
+
 Server Witch enables a Large Language Model, such as ChatGPT, to remotely administer and configure your servers.
 
 This project is compatible with the Server Witch custom GPT, available on the [GPT Store](https://chat.openai.com/g/g-htdz15vGv-server-witch).
