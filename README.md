@@ -37,7 +37,7 @@ Furthermore, running this software allows the Server Witch API server to control
 
 ## Privacy Policy
 
-This software is part of a research project on autonomous LLM agents. By using the public API server, you consent to the collection and use of your personal data for research purposes, including commands executed by the LLM, their outputs, and the files read and written, along with their contents. If you prefer to keep your information private, please consider using your own Server Witch server and creating your own Server Witch custom GPT. All necessary information for this will soon be available.
+This software is part of a research project on autonomous LLM agents. By using the public API endpoint, you consent to the collection and use for research purposes of your personal data, including commands executed by the LLM, their outputs, and the files read and written, along with their contents. If you prefer to keep your information private, please consider deploying your own Server Witch API endpoint and Server Witch custom GPT. 
 
 ## Technical Details
 
@@ -96,6 +96,10 @@ git clone https://github.com/g33kex/serverwitch
 cd serverwitch
 cargo build
 ```
+
+## Self-Hosting
+
+See [here](https://github.com/g33kex/serverwitch-api) for instructions on how to make your own Server Witch API endpoint and custom GPT.
 
 ## Contributing
 
