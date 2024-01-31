@@ -10,11 +10,13 @@ This project is compatible with the Server Witch custom GPT, available on the [G
 
 ## How to Use
 
+Please read and understand the [Disclaimer](#disclaimer) section before running this on your system.
+
 ```
 curl -s https://raw.githubusercontent.com/g33kex/ServerWitch/main/run.sh | sh
 ```
 
-1. This command downloads and runs the executable, which will print a session ID.
+1. This command downloads and runs the executable, which will print a session ID. You can also download the executable from the [releases page](https://github.com/g33kex/ServerWitch/releases/) or built it yourself.
 2. Provide this session ID to the Server Witch custom GPT.
 3. Ask the GPT to configure your server. Here are some suggestions:
     * Install Apache and set up a test webpage on port 8080.
@@ -24,8 +26,7 @@ curl -s https://raw.githubusercontent.com/g33kex/ServerWitch/main/run.sh | sh
     * Audit the SSHD configuration.
     * Reboot the server.
     * Install, deploy Kubernetes, and ensure its proper functionality.
-
-Before executing each action, the `serverwitch` client will request your confirmation.
+4. Before executing each action, the `serverwitch` client will request your confirmation.
 
 ## Disclaimer
 
