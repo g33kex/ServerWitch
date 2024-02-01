@@ -1,12 +1,18 @@
 # Server Witch
 
 <p align="center">
-  <img width="80%" src="https://github.com/g33kex/ServerWitch/releases/download/v0.1.1/serverwitch.gif">
+  <img width="40%" src="logo.png">
 </p>
 
 Server Witch enables a Large Language Model, such as ChatGPT, to remotely administer and configure your servers.
 
 This project is compatible with the Server Witch custom GPT, available on the [GPT Store](https://chat.openai.com/g/g-htdz15vGv-server-witch).
+
+## Demo
+
+<p align="center">
+  <img width="95%" src="https://github.com/g33kex/ServerWitch/releases/download/v0.1.1/serverwitch.gif">
+</p>
 
 ## How to Use
 
