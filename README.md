@@ -39,7 +39,7 @@ This program is essentially a backdoor that enables a remote LLM to control your
 
 Allowing an LLM to execute commands on your server can be hazardous, potentially leading to configuration errors, security vulnerabilities, and catastrophic consequences including the potential for AI to take over the world or eat your laundry. We are not liable for any damage resulting from the usage of this software. Exercise extreme caution. Do not use this on production servers.
 
-Furthermore, running this software allows the Server Witch API server to control your machine. The communication between the client and the API is secured with HTTPS, but anyone with access to your session ID can run arbitrary commands on your machine. If this concerns you, consider deploying your own API server, and restrict its access.
+Furthermore, running this software allows the Server Witch API server to control your machine. The communication between the client and the API is secured with HTTPS, but anyone with access to your session ID can run arbitrary commands on your machine (with your confirmation before each command). If this concerns you, consider deploying your own API server, and restrict its access.
 
 ## Privacy Policy
 
