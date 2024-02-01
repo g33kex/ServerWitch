@@ -53,7 +53,7 @@ By default, this client connects to a demo public API server linked to the Serve
 The witch protocol is illustrated as follows:  
 
 <p align="center">
-  <img width="100%" src="protocol.png">
+  <img width="80%" src="protocol.png">
 </p>
 
 ## Building
