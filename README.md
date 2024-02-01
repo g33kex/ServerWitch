@@ -50,10 +50,10 @@ This repository houses the client for Server Witch, an autonomous server configu
 
 By default, this client connects to a demo public API server linked to the Server Witch custom GPT. It upgrades its HTTPS connection to a WebSocket to receive commands and send responses.
 
-The witch protocol is illustrated as follows:
+The witch protocol is illustrated as follows:  
 
 <p align="center">
-  <img width="60%" src="protocol.png">
+  <img width="80%" src="protocol.png">
 </p>
 
 ## Building
