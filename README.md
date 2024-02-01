@@ -30,7 +30,8 @@ curl -s https://raw.githubusercontent.com/g33kex/ServerWitch/main/run.sh | sh
     * Audit the SSHD configuration.
     * Reboot the server.
     * Install, deploy Kubernetes, and ensure its proper functionality.
-4. Before executing each action, the `serverwitch` client will request your confirmation.
+
+**Before executing each action, the `serverwitch` client will request your confirmation.**
 
 ## Disclaimer
 
