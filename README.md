@@ -10,9 +10,7 @@ This project is compatible with the Server Witch custom GPT, available on the [G
 
 ## Demo
 
-<p align="center">
-  <img width="95%" src="https://github.com/g33kex/ServerWitch/releases/download/v0.1.1/serverwitch.gif">
-</p>
+![Server Witch demo](https://github.com/g33kex/ServerWitch/releases/download/v0.1.1/serverwitch.gif)
 
 ## How to Use
 
@@ -54,45 +52,9 @@ By default, this client connects to a demo public API server linked to the Serve
 
 The witch protocol is illustrated as follows:
 
-```
-
-                    ┌──────┐          ┌───┐          ┌───┐                     
-                    │Client│          │API│          │LLM│                     
-                    └──┬───┘          └─┬─┘          └─┬─┘                     
-                       │    session     │              │                       
-                       │ ──────────────>│              │                       
-                       │                │              │                       
-                       │   session-id   │              │                       
-                       │ <─ ─ ─ ─ ─ ─ ─ │              │                       
-                       │                │              │                       
-                    ╔══╧════════════════╧═══╗          │                       
-                    ║Websocket session     ░║          │                       
-                    ╚══╤════════════════╤═══╝          │                       
- ╔════════════════════╗│                │              │                       
- ║Client prints      ░║│                │              │                       
- ║session-id to user  ║│                │              │                       
- ╚════════════════════╝│                │              │                       
-                       │                │              │ ╔════════════════════╗
-                       │                │              │ ║LLM asks           ░║
-                       │                │              │ ║session-id to user  ║
-                       │                │              │ ╚════════════════════╝
-                       │                │  command     │                       
-                       │                │  session-id  │                       
-                       │                │<─────────────│                       
-                       │                │              │                       
-                       │    command     │              │                       
-                       │ <──────────────│              │                       
-                       │                │              │                       
-                       │     result     │              │                       
-                       │  ─ ─ ─ ─ ─ ─ ─>│              │                       
-                       │                │              │                       
-                       │                │   result     │                       
-                       │                │ ─ ─ ─ ─ ─ ─ >│                       
-                    ┌──┴───┐          ┌─┴─┐          ┌─┴─┐                     
-                    │Client│          │API│          │LLM│                     
-                    └──────┘          └───┘          └───┘                     
-
-```
+<p align="center">
+  <img width="60%" src="protocol.png">
+</p>
 
 ## Building
 
