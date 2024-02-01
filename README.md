@@ -1,7 +1,7 @@
 # Server Witch
 
 <p align="center">
-  <img width="40%" src="logo.png">
+  <img width="80%" src="https://github.com/g33kex/ServerWitch/releases/download/v0.1.1/serverwitch.gif">
 </p>
 
 Server Witch enables a Large Language Model, such as ChatGPT, to remotely administer and configure your servers.
