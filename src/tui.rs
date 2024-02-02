@@ -42,8 +42,6 @@ struct App {
     session_id: Option<String>,
     /// The current tui area. Will grow when adding items and stop at the terminal border
     area: Rect,
-    /// The space to leave for UI before showing actions on top of the area
-    top_margin: u16,
     /// The space to leave for UI after showing actions on the bottom of the area
     bottom_margin: u16,
     /// Quit the app if true
@@ -67,7 +65,6 @@ impl App {
             pending_actions: VecDeque::new(),
             session_id: None,
             area,
-            top_margin: 0,
             bottom_margin: 0,
             should_quit: false,
             spinner_index: 0,
@@ -154,15 +151,19 @@ pub async fn run(rx: Receiver<ActionMessage>) -> Result<(), Error> {
         .scan(
             (&mut app, &mut terminal),
             |(ref mut app, ref mut terminal), event| {
-                update(app, terminal, event);
-                terminal
-                    .draw(|f| ui(&app, f))
-                    .map_err(|e| error!("Error: {}", e))
-                    .ok();
-                terminal
-                    .hide_cursor()
-                    .map_err(|e| error!("Error: {}", e))
-                    .ok();
+                let result = update(app, terminal, event);
+
+                // Draw screen if update was successful
+                if result.is_ok() {
+                    terminal
+                        .draw(|f| ui(&app, f))
+                        .map_err(|e| error!("Error: {}", e))
+                        .ok();
+                    terminal
+                        .hide_cursor()
+                        .map_err(|e| error!("Error: {}", e))
+                        .ok();
+                }
 
                 // Stop early if the app should exit
                 future::ready((!app.should_quit).then_some(()))
@@ -261,7 +262,7 @@ fn update(
     app: &mut App,
     terminal: &mut Terminal<CrosstermBackend<impl std::io::Write>>,
     event: Event,
-) {
+) -> Result<(), Error> {
     match event {
         Event::Key(key) => match key.code {
             Char('q') => {
@@ -301,10 +302,7 @@ fn update(
             app.spinner_index = (app.spinner_index + 1) % SPINNER_SYMBOLS.len();
         }
         Event::Resize(width, height) => {
-            terminal
-                .resize(Rect::new(0, 0, width, height))
-                .map_err(|e| error!("Error resizing terminal: {}", e))
-                .ok();
+            terminal.resize(Rect::new(0, 0, width, height))?;
             app.area = Rect::new(
                 0,
                 app.area.y,
@@ -342,27 +340,27 @@ fn update(
                 }
             }
             ActionMessage::NewSession(session_id) => {
-                app.session_id = Some(session_id);
+                insert_before(app, terminal, 1, |buf| {
+                    Paragraph::new(format!("Session id: {}", session_id)).render(buf.area, buf)
+                })?;
             }
         },
     }
 
-    app.top_margin = if app.session_id.is_some() { 1 } else { 0 };
     app.bottom_margin = if app.pending_actions.len() > 0 { 2 } else { 0 };
 
-    // Panic if the terminal is too small
-    if matches!(terminal.size(), Ok(size) if size.height < app.top_margin + app.bottom_margin) {
-        panic!("Terminal too small!");
+    let terminal_size = terminal.size()?;
+
+    if terminal_size.height < app.bottom_margin {
+        return Err(Error::TerminalTooSmall);
     }
 
     // If the actions don't fit into the screen area we need to either grow the screen area
     // or scroll some actions out of the screen area.
     // This should probably be implemented as a custom viewport, but it will work for now
-    while app.actions.len() as i64
-        > (app.area.height as i64 - app.top_margin as i64 - app.bottom_margin as i64)
-    {
+    while app.actions.len() as i64 > (app.area.height as i64 - app.bottom_margin as i64) {
         // If there is still space in the terminal, grow the area towards the bottom
-        if app.area.bottom() < terminal.size().unwrap().bottom() {
+        if app.area.bottom() < terminal_size.bottom() {
             app.area.height += 1;
             continue;
         }
@@ -387,6 +385,7 @@ fn update(
             });
         }
     }
+    Ok(())
 }
 
 fn ui(app: &App, f: &mut Frame) {
@@ -394,6 +393,7 @@ fn ui(app: &App, f: &mut Frame) {
 
     let height = app.actions.len() as u16;
 
+    // Create the layout, a list and optionally a confirmation dialog
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(vec![
@@ -402,6 +402,7 @@ fn ui(app: &App, f: &mut Frame) {
         ])
         .split(area);
 
+    // Render the lines and spinners
     let mut list_items = vec![];
     for (_, stateful_action) in &app.actions {
         let mut line: Line = stateful_action.into();
@@ -413,13 +414,14 @@ fn ui(app: &App, f: &mut Frame) {
         list_items.push(ListItem::new(line));
     }
     let list = List::new(list_items);
-    f.render_widget(list, layout[1]);
+    f.render_widget(list, layout[0]);
 
+    // Render the confirmation dialog
     if let Some((_, next_action, _)) = app.pending_actions.front() {
         let confirmation = Paragraph::new(vec![
             next_action.into(),
             Line::from("Are you sure you want to do this? [y/n]"),
         ]);
-        f.render_widget(confirmation, layout[2]);
+        f.render_widget(confirmation, layout[1]);
     }
 }

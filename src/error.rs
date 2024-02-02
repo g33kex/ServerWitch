@@ -17,10 +17,12 @@ pub enum Error {
     UnsupportedMessage,
     #[error("Could not send the message into the channel")]
     SendError(#[from] futures_channel::mpsc::TrySendError<Message>),
-    #[error("Error executing command: {0}")]
+    #[error("Input/output error: {0}")]
     CommandError(#[from] std::io::Error),
     #[error("Command output contains invalid characters")]
     CommandOutputError(#[from] FromUtf8Error),
     #[error("Could not send the action to the tui")]
     ActionSendError(#[from] futures_channel::mpsc::TrySendError<ActionMessage>),
+    #[error("The terminal is too small to render the tui")]
+    TerminalTooSmall,
 }
