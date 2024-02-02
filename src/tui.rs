@@ -119,42 +119,12 @@ pub async fn run(rx: Receiver<ActionMessage>) -> Result<(), Error> {
     let stdout = io::stdout();
     let backend = CrosstermBackend::new(stdout);
 
-    let mut height = 0;
     let mut terminal = Terminal::new(backend)?;
-    // let mut terminal = Terminal::with_options(
-    //     backend,
-    //     TerminalOptions {
-    //         viewport: Viewport::Inline((height)),
-    //     },
-    // )?;
-    //
-    // let mut cursor_pos = terminal.backend_mut().get_cursor()?;
-    //
-    // terminal.insert_before(1, |buf| {
-    //     Paragraph::new("Hello world").render(buf.area, buf);
-    // });
-    //
-    // let old_area = terminal.current_buffer_mut().area().clone();
-    // terminal.resize(Rect::new(
-    //     old_area.x,
-    //     old_area.y,
-    //     old_area.width,
-    //     old_area.height + 5,
-    // ))?;
-    // terminal.draw(|f| {
-    //     let p = Paragraph::new("This is a test")
-    //         .block(Block::default().title("Test").borders(Borders::all()));
-    //     f.render_widget(p, f.size());
-    // });
-    //
-    // terminal.set_cursor(cursor_pos.0, cursor_pos.1 + 1);
-    // return Ok(());
-
     let cursor_pos = terminal.get_cursor()?;
     let initial_area = Rect::new(0, cursor_pos.1, terminal.size()?.width, 0);
     let mut app = App::new(initial_area);
 
-    // terminal.show_cursor()?;
+    terminal.hide_cursor();
 
     // Crossterm events
     let reader = EventStream::new()
@@ -189,11 +159,10 @@ pub async fn run(rx: Receiver<ActionMessage>) -> Result<(), Error> {
                     .draw(|f| ui(&app, f))
                     .map_err(|e| error!("Error: {}", e))
                     .ok();
-                // terminal
-                //     .hide_cursor()
-                //     .map_err(|e| error!("Error: {}", e))
-                //     .ok();
-                terminal.show_cursor();
+                terminal
+                    .hide_cursor()
+                    .map_err(|e| error!("Error: {}", e))
+                    .ok();
 
                 // Stop early if the app should exit
                 future::ready((!app.should_quit).then_some(()))
@@ -246,7 +215,7 @@ fn scroll(
     terminal.swap_buffers();
     Ok(())
 }
-/// This function insert lines in the history of the terminal (outside of the view)
+/// This function insert lines in the history of the terminal (outside of the view area)
 /// We're using the top of the terminal to render the lines, then scroll them out of view
 fn insert_before<F>(
     app: &mut App,
@@ -260,7 +229,7 @@ where
     // Draw contents into buffer
     let area = Rect {
         x: app.area.left(),
-        y: 0,
+        y: app.area.top(),
         width: app.area.width,
         height,
     };
@@ -287,7 +256,7 @@ where
     Ok(())
 }
 
-// Update the internal state of the app. This should never fail.
+// Update the internal state of the app. This function panics if the terminal is too small.
 fn update(
     app: &mut App,
     terminal: &mut Terminal<CrosstermBackend<impl std::io::Write>>,
@@ -325,52 +294,6 @@ fn update(
                             .ok();
                     }
                 }
-            }
-            Char('r') => {
-                let new_action = StatefulAction {
-                    action: Action::Command {
-                        command: String::from("ls -lah"),
-                    },
-                    state: State::Running,
-                };
-                app.actions.push_back((Uuid::new_v4(), new_action));
-            }
-            Char('x') => {
-                let new_action = StatefulAction {
-                    action: Action::Write {
-                        path: PathBuf::from("/home/test/test.txt"),
-                        content: String::from("This is a long content\nIt has newlines, and it is wayyy bigger than the screen so it will probably get cut off but it's fine, we're testing stuff here. I want to see how it goes off the screen and what we can do to fix it."),
-                    },
-                    state: State::Canceled,
-                };
-                app.actions.push_back((Uuid::new_v4(), new_action));
-                let new_action = StatefulAction {
-                    action: Action::Read {
-                        path: PathBuf::from("/home/test/test.txt"),
-                    },
-                    state: State::Finished,
-                };
-                app.actions.push_back((Uuid::new_v4(), new_action));
-            }
-            Char('s') => {
-                scroll(terminal, 3);
-                // if app.area.y != 0 {
-                //     app.area.y -= 1;
-                // } else {
-                //     app.area.height -= 1;
-                // }
-            }
-            Char('d') => {
-                app.pending_actions.push_back((
-                    Uuid::new_v4(),
-                    StatefulAction {
-                        action: Action::Command {
-                            command: String::from("cat /etc/passwd"),
-                        },
-                        state: State::Pending,
-                    },
-                    None,
-                ));
             }
             _ => (),
         },
@@ -427,7 +350,8 @@ fn update(
     app.top_margin = if app.session_id.is_some() { 1 } else { 0 };
     app.bottom_margin = if app.pending_actions.len() > 0 { 2 } else { 0 };
 
-    if terminal.size().unwrap().height < app.top_margin + app.bottom_margin {
+    // Panic if the terminal is too small
+    if matches!(terminal.size(), Ok(size) if size.height < app.top_margin + app.bottom_margin) {
         panic!("Terminal too small!");
     }
 
@@ -473,16 +397,10 @@ fn ui(app: &App, f: &mut Frame) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(vec![
-            Constraint::Length(app.top_margin),
             Constraint::Length(height),
             Constraint::Length(app.bottom_margin),
         ])
         .split(area);
-
-    if let Some(session_id) = &app.session_id {
-        let paragraph = Paragraph::new(format!("Session id: {}", session_id));
-        f.render_widget(paragraph, layout[0]);
-    }
 
     let mut list_items = vec![];
     for (_, stateful_action) in &app.actions {
