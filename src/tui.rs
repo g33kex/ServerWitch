@@ -134,7 +134,7 @@ pub async fn run(rx: Receiver<ActionMessage>) -> Result<(), Error> {
     let initial_area = Rect::new(0, cursor_pos.1, terminal.size()?.width, 0);
     let mut app = App::new(initial_area);
 
-    terminal.hide_cursor();
+    terminal.hide_cursor()?;
 
     // Crossterm events
     let reader = EventStream::new()
@@ -186,7 +186,7 @@ pub async fn run(rx: Receiver<ActionMessage>) -> Result<(), Error> {
         .await;
 
     // Restore terminal state
-    terminal.set_cursor(0, app.area.bottom());
+    terminal.set_cursor(0, app.area.bottom())?;
     if app.area.height > 0 && app.area.bottom() == terminal.size()?.bottom() {
         terminal
             .backend_mut()
@@ -250,7 +250,7 @@ where
         }))?;
     terminal.backend_mut().flush()?;
     // Scroll up
-    scroll(terminal, height);
+    scroll(terminal, height)?;
     Ok(())
 }
 
@@ -292,64 +292,6 @@ fn update(
                             .ok();
                     }
                 }
-            }
-            Char('a') => {
-                let new_action = StatefulAction {
-                    action: Action::Command {
-                        command: String::from("ls -lah"),
-                    },
-                    state: State::Running,
-                };
-                app.rows
-                    .push_back(Row::ActionRow(Uuid::new_v4(), new_action));
-            }
-            Char('z') => {
-                let new_action = StatefulAction {
-                    action: Action::Write {
-                        path: PathBuf::from("/home/test/test.txt"),
-                        content: String::from("This is a long content\nIt has newlines, and it is wayyy bigger than the screen so it will probably get cut off but it's fine, we're testing stuff here. I want to see how it goes off the screen and what we can do to fix it."),
-                    },
-                    state: State::Canceled,
-                };
-                app.rows
-                    .push_back(Row::ActionRow(Uuid::new_v4(), new_action));
-                let new_action = StatefulAction {
-                    action: Action::Read {
-                        path: PathBuf::from("/home/test/test.txt"),
-                    },
-                    state: State::Finished,
-                };
-                app.rows
-                    .push_back(Row::ActionRow(Uuid::new_v4(), new_action));
-            }
-            Char('e') => {
-                app.pending_actions.push_back((
-                    Uuid::new_v4(),
-                    StatefulAction {
-                        action: Action::Command {
-                            command: String::from("cat /etc/passwd"),
-                        },
-                        state: State::Pending,
-                    },
-                    None,
-                ));
-            }
-            Char('r') => {
-                insert_before(app, terminal, 1, |buf| {
-                    Paragraph::new("Test inserted before").render(buf.area, buf)
-                })?;
-                return Ok(());
-            }
-            Char('x') => {
-                // terminal.backend_mut().execute(ScrollUp(1));
-                scroll(terminal, 1);
-                return Ok(());
-            }
-            Char('w') => {
-                // scroll(terminal, 1);
-                // app.area.y -= 1;
-                terminal.clear();
-                return Ok(());
             }
             _ => (),
         },
@@ -420,15 +362,15 @@ fn update(
         }
         // There is no space left at the bottom, we need to scroll up
         // We need to first clear the bottom margin
-        terminal.set_cursor(0, app.area.bottom().saturating_sub(app.bottom_margin));
+        terminal.set_cursor(0, app.area.bottom().saturating_sub(app.bottom_margin))?;
         terminal
             .backend_mut()
-            .clear_region(ratatui::backend::ClearType::AfterCursor);
+            .clear_region(ratatui::backend::ClearType::AfterCursor)?;
         // Maybe we can use space above
         if app.area.y > 0 {
             app.area.y -= 1;
             app.area.height += 1;
-            scroll(terminal, 1);
+            scroll(terminal, 1)?;
         }
         // If there is no space left, we need to push a row out of view
         else if let Some(row) = app.rows.pop_front() {
@@ -436,7 +378,7 @@ fn update(
             insert_before(app, terminal, 1, |buf| {
                 let line: Line = (&row).into();
                 Paragraph::new(line).render(buf.area, buf);
-            });
+            })?;
         }
     }
     Ok(())
