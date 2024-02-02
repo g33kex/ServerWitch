@@ -354,6 +354,11 @@ fn update(
             }
             Char('s') => {
                 scroll(terminal, 3);
+                // if app.area.y != 0 {
+                //     app.area.y -= 1;
+                // } else {
+                //     app.area.height -= 1;
+                // }
             }
             Char('d') => {
                 app.pending_actions.push_back((
@@ -372,11 +377,17 @@ fn update(
         Event::Tick => {
             app.spinner_index = (app.spinner_index + 1) % SPINNER_SYMBOLS.len();
         }
-        Event::Resize(_, _) => {
+        Event::Resize(width, height) => {
             terminal
-                .autoresize()
+                .resize(Rect::new(0, 0, width, height))
                 .map_err(|e| error!("Error resizing terminal: {}", e))
                 .ok();
+            app.area = Rect::new(
+                0,
+                app.area.y,
+                width,
+                app.area.height.min(height.saturating_sub(app.area.y)),
+            );
         }
         Event::Message(message) => match message {
             ActionMessage::ConfirmAction((id, action, tx)) => {
@@ -416,6 +427,10 @@ fn update(
     app.top_margin = if app.session_id.is_some() { 1 } else { 0 };
     app.bottom_margin = if app.pending_actions.len() > 0 { 2 } else { 0 };
 
+    if terminal.size().unwrap().height < app.top_margin + app.bottom_margin {
+        panic!("Terminal too small!");
+    }
+
     // If the actions don't fit into the screen area we need to either grow the screen area
     // or scroll some actions out of the screen area.
     // This should probably be implemented as a custom viewport, but it will work for now
@@ -429,7 +444,7 @@ fn update(
         }
         // There is no space left at the bottom, we need to scroll up
         // We need to first clear the bottom margin
-        terminal.set_cursor(0, app.area.bottom() - app.bottom_margin);
+        terminal.set_cursor(0, app.area.bottom().saturating_sub(app.bottom_margin));
         terminal
             .backend_mut()
             .clear_region(ratatui::backend::ClearType::AfterCursor);
@@ -451,7 +466,7 @@ fn update(
 }
 
 fn ui(app: &App, f: &mut Frame) {
-    let area = app.area;
+    let area = f.size().intersection(app.area);
 
     let height = app.actions.len() as u16;
 
@@ -479,7 +494,7 @@ fn ui(app: &App, f: &mut Frame) {
         }
         list_items.push(ListItem::new(line));
     }
-    let list = List::new(list_items); //.block(Block::default().title("List").borders(Borders::all()));
+    let list = List::new(list_items);
     f.render_widget(list, layout[1]);
 
     if let Some((_, next_action, _)) = app.pending_actions.front() {
