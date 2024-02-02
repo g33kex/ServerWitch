@@ -8,23 +8,19 @@ use futures_util::stream::select_all;
 use futures_util::{future, StreamExt};
 use log::error;
 use ratatui::backend::{Backend, ClearType, CrosstermBackend};
-use ratatui::buffer::{Buffer, Cell};
+use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Widget};
-use ratatui::{Frame, Terminal, TerminalOptions, Viewport};
-use std::borrow::Borrow;
+use ratatui::widgets::{List, ListItem, Paragraph, Widget};
+use ratatui::{Frame, Terminal};
 use std::collections::VecDeque;
 use std::io;
-use std::iter::repeat_with;
-use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
 use uuid::Uuid;
 
-use crate::session;
 use crate::{
     action::Action, action::ActionMessage, action::State, action::StatefulAction, error::Error,
 };
@@ -297,16 +293,10 @@ fn update(
         },
         Event::Tick => {
             app.spinner_index = (app.spinner_index + 1) % SPINNER_SYMBOLS.len();
-            return Ok(());
         }
         Event::Resize(width, height) => {
             terminal.resize(Rect::new(0, 0, width, height))?;
-            app.area = Rect::new(
-                0,
-                app.area.y,
-                width,
-                app.area.height.min(height.saturating_sub(app.area.y)),
-            );
+            app.area = Rect::new(0, 0, width, app.area.height.min(height));
         }
         Event::Message(message) => match message {
             ActionMessage::ConfirmAction((id, action, tx)) => {
@@ -365,7 +355,7 @@ fn update(
         terminal.set_cursor(0, app.area.bottom().saturating_sub(app.bottom_margin))?;
         terminal
             .backend_mut()
-            .clear_region(ratatui::backend::ClearType::AfterCursor)?;
+            .clear_region(ClearType::AfterCursor)?;
         // Maybe we can use space above
         if app.area.y > 0 {
             app.area.y -= 1;
