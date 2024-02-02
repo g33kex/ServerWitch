@@ -29,13 +29,13 @@ use crate::{
 };
 
 const SPINNER_SYMBOLS: [&str; 6] = ["⠇", "⠋", "⠙", "⠸", "⠴", "⠦"];
-const TICK_MS: u64 = 100;
+const TICK_MS: u64 = 1000;
 
 #[derive(Debug)]
 /// Tui App state
 struct App {
-    /// A queue of confirmed actions
-    actions: VecDeque<(Uuid, StatefulAction)>,
+    /// A queue of lines to show on the ui
+    lines: VecDeque<(Uuid, StatefulAction)>,
     /// A queue of actions to be confirmed. Each action is a tuple containing the id of the next action, the next action, and optionally a sender to notify the app that the next action was accepted.
     pending_actions: VecDeque<(Uuid, StatefulAction, Option<Sender<bool>>)>,
     /// The session id
@@ -205,14 +205,6 @@ fn scroll(
     height: u16,
 ) -> io::Result<()> {
     terminal.backend_mut().execute(ScrollUp(height))?;
-
-    // Scroll the internal buffer to avoid unnecessary redraws
-    let mut buffer = terminal.current_buffer_mut();
-    let offset = (buffer.area().height.min(height) * buffer.area().width) as usize;
-    buffer.content.drain(0..offset);
-    buffer
-        .content
-        .extend(repeat_with(|| Cell::default()).take(offset));
     terminal.swap_buffers();
     Ok(())
 }
@@ -246,14 +238,6 @@ where
     terminal.backend_mut().flush()?;
     // Scroll up
     scroll(terminal, height);
-    // Clear the lines we used so that they're redrawn
-    let mut buffer = Buffer::empty(area);
-    terminal
-        .backend_mut()
-        .draw(buffer.content.iter().enumerate().map(|(i, c)| {
-            let (x, y) = buffer.pos_of(i);
-            (x, y, c)
-        }))?;
     Ok(())
 }
 
@@ -296,10 +280,66 @@ fn update(
                     }
                 }
             }
+            Char('a') => {
+                let new_action = StatefulAction {
+                    action: Action::Command {
+                        command: String::from("ls -lah"),
+                    },
+                    state: State::Running,
+                };
+                app.actions.push_back((Uuid::new_v4(), new_action));
+            }
+            Char('z') => {
+                let new_action = StatefulAction {
+                    action: Action::Write {
+                        path: PathBuf::from("/home/test/test.txt"),
+                        content: String::from("This is a long content\nIt has newlines, and it is wayyy bigger than the screen so it will probably get cut off but it's fine, we're testing stuff here. I want to see how it goes off the screen and what we can do to fix it."),
+                    },
+                    state: State::Canceled,
+                };
+                app.actions.push_back((Uuid::new_v4(), new_action));
+                let new_action = StatefulAction {
+                    action: Action::Read {
+                        path: PathBuf::from("/home/test/test.txt"),
+                    },
+                    state: State::Finished,
+                };
+                app.actions.push_back((Uuid::new_v4(), new_action));
+            }
+            Char('e') => {
+                app.pending_actions.push_back((
+                    Uuid::new_v4(),
+                    StatefulAction {
+                        action: Action::Command {
+                            command: String::from("cat /etc/passwd"),
+                        },
+                        state: State::Pending,
+                    },
+                    None,
+                ));
+            }
+            Char('r') => {
+                insert_before(app, terminal, 1, |buf| {
+                    Paragraph::new("Test inserted before").render(buf.area, buf)
+                })?;
+                return Ok(());
+            }
+            Char('x') => {
+                // terminal.backend_mut().execute(ScrollUp(1));
+                scroll(terminal, 1);
+                return Ok(());
+            }
+            Char('w') => {
+                // scroll(terminal, 1);
+                // app.area.y -= 1;
+                terminal.clear();
+                return Ok(());
+            }
             _ => (),
         },
         Event::Tick => {
             app.spinner_index = (app.spinner_index + 1) % SPINNER_SYMBOLS.len();
+            return Ok(());
         }
         Event::Resize(width, height) => {
             terminal.resize(Rect::new(0, 0, width, height))?;
@@ -340,9 +380,9 @@ fn update(
                 }
             }
             ActionMessage::NewSession(session_id) => {
-                insert_before(app, terminal, 1, |buf| {
-                    Paragraph::new(format!("Session id: {}", session_id)).render(buf.area, buf)
-                })?;
+                // insert_before(app, terminal, 1, |buf| {
+                //     Paragraph::new(format!("Session id: {}", session_id)).render(buf.area, buf)
+                // })?;
             }
         },
     }
@@ -355,7 +395,7 @@ fn update(
         return Err(Error::TerminalTooSmall);
     }
 
-    // If the actions don't fit into the screen area we need to either grow the screen area
+    // If 2023the actions don't fit into the screen area we need to either grow the screen area
     // or scroll some actions out of the screen area.
     // This should probably be implemented as a custom viewport, but it will work for now
     while app.actions.len() as i64 > (app.area.height as i64 - app.bottom_margin as i64) {
