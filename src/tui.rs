@@ -24,22 +24,21 @@ use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
 use uuid::Uuid;
 
+use crate::session;
 use crate::{
     action::Action, action::ActionMessage, action::State, action::StatefulAction, error::Error,
 };
 
 const SPINNER_SYMBOLS: [&str; 6] = ["⠇", "⠋", "⠙", "⠸", "⠴", "⠦"];
-const TICK_MS: u64 = 1000;
+const TICK_MS: u64 = 100;
 
 #[derive(Debug)]
 /// Tui App state
 struct App {
-    /// A queue of lines to show on the ui
-    lines: VecDeque<(Uuid, StatefulAction)>,
+    /// A queue of rows to show on the ui
+    rows: VecDeque<Row>,
     /// A queue of actions to be confirmed. Each action is a tuple containing the id of the next action, the next action, and optionally a sender to notify the app that the next action was accepted.
     pending_actions: VecDeque<(Uuid, StatefulAction, Option<Sender<bool>>)>,
-    /// The session id
-    session_id: Option<String>,
     /// The current tui area. Will grow when adding items and stop at the terminal border
     area: Rect,
     /// The space to leave for UI after showing actions on the bottom of the area
@@ -48,6 +47,12 @@ struct App {
     should_quit: bool,
     /// Index of the current symbol of the spinner
     spinner_index: usize,
+}
+
+#[derive(Debug)]
+enum Row {
+    ActionRow(Uuid, StatefulAction),
+    StringRow(String),
 }
 
 #[derive(Debug)]
@@ -61,9 +66,8 @@ enum Event {
 impl App {
     fn new(area: Rect) -> App {
         App {
-            actions: VecDeque::new(),
+            rows: VecDeque::new(),
             pending_actions: VecDeque::new(),
-            session_id: None,
             area,
             bottom_margin: 0,
             should_quit: false,
@@ -107,6 +111,15 @@ impl<'a> Into<Line<'a>> for &'a StatefulAction {
             second_separator_span,
             content_span,
         ])
+    }
+}
+
+impl<'a> Into<Line<'a>> for &'a Row {
+    fn into(self) -> Line<'a> {
+        match self {
+            Row::ActionRow(_, action) => action.into(),
+            Row::StringRow(s) => Line::from(s.as_str()),
+        }
     }
 }
 
@@ -260,7 +273,7 @@ fn update(
             Char('y') => {
                 if let Some((id, mut action, tx)) = app.pending_actions.pop_front() {
                     action.state = State::Running;
-                    app.actions.push_back((id, action));
+                    app.rows.push_back(Row::ActionRow(id, action));
 
                     if let Some(tx) = tx {
                         tx.send(true)
@@ -272,7 +285,7 @@ fn update(
             Char('n') => {
                 if let Some((id, mut action, tx)) = app.pending_actions.pop_front() {
                     action.state = State::Canceled;
-                    app.actions.push_back((id, action));
+                    app.rows.push_back(Row::ActionRow(id, action));
                     if let Some(tx) = tx {
                         tx.send(false)
                             .map_err(|e| error!("Error sending confirmation: {}", e))
@@ -287,7 +300,8 @@ fn update(
                     },
                     state: State::Running,
                 };
-                app.actions.push_back((Uuid::new_v4(), new_action));
+                app.rows
+                    .push_back(Row::ActionRow(Uuid::new_v4(), new_action));
             }
             Char('z') => {
                 let new_action = StatefulAction {
@@ -297,14 +311,16 @@ fn update(
                     },
                     state: State::Canceled,
                 };
-                app.actions.push_back((Uuid::new_v4(), new_action));
+                app.rows
+                    .push_back(Row::ActionRow(Uuid::new_v4(), new_action));
                 let new_action = StatefulAction {
                     action: Action::Read {
                         path: PathBuf::from("/home/test/test.txt"),
                     },
                     state: State::Finished,
                 };
-                app.actions.push_back((Uuid::new_v4(), new_action));
+                app.rows
+                    .push_back(Row::ActionRow(Uuid::new_v4(), new_action));
             }
             Char('e') => {
                 app.pending_actions.push_back((
@@ -362,7 +378,7 @@ fn update(
                 ));
             }
             ActionMessage::AddAction((id, action)) => {
-                app.actions.push_back((
+                app.rows.push_back(Row::ActionRow(
                     id,
                     StatefulAction {
                         action,
@@ -371,18 +387,17 @@ fn update(
                 ));
             }
             ActionMessage::StopAction(id) => {
-                if let Some((_, action)) = app
-                    .actions
+                if let Some(Row::ActionRow(_, action)) = app
+                    .rows
                     .iter_mut()
-                    .find(|(id_other, _)| id_other.eq(&id))
+                    .find(|row| matches!(row, Row::ActionRow(id_other, _) if id_other == &id))
                 {
                     action.state = State::Finished
                 }
             }
             ActionMessage::NewSession(session_id) => {
-                // insert_before(app, terminal, 1, |buf| {
-                //     Paragraph::new(format!("Session id: {}", session_id)).render(buf.area, buf)
-                // })?;
+                app.rows
+                    .push_back(Row::StringRow(format!("Session id: {}", session_id)));
             }
         },
     }
@@ -395,10 +410,9 @@ fn update(
         return Err(Error::TerminalTooSmall);
     }
 
-    // If 2023the actions don't fit into the screen area we need to either grow the screen area
-    // or scroll some actions out of the screen area.
-    // This should probably be implemented as a custom viewport, but it will work for now
-    while app.actions.len() as i64 > (app.area.height as i64 - app.bottom_margin as i64) {
+    // If the rows don't fit into the screen area we need to either grow the screen area
+    // or scroll some rows out of the screen area.
+    while app.rows.len() as i64 > (app.area.height as i64 - app.bottom_margin as i64) {
         // If there is still space in the terminal, grow the area towards the bottom
         if app.area.bottom() < terminal_size.bottom() {
             app.area.height += 1;
@@ -416,11 +430,11 @@ fn update(
             app.area.height += 1;
             scroll(terminal, 1);
         }
-        // If there is no space left, we need to push an action out of view
-        else if let Some((_, stateful_action)) = app.actions.pop_front() {
-            // This requires redrawing the action as completed before pushing it out of view
+        // If there is no space left, we need to push a row out of view
+        else if let Some(row) = app.rows.pop_front() {
+            // This requires redrawing the row before pushing it out of view
             insert_before(app, terminal, 1, |buf| {
-                let line: Line = (&stateful_action).into();
+                let line: Line = (&row).into();
                 Paragraph::new(line).render(buf.area, buf);
             });
         }
@@ -431,7 +445,7 @@ fn update(
 fn ui(app: &App, f: &mut Frame) {
     let area = f.size().intersection(app.area);
 
-    let height = app.actions.len() as u16;
+    let height = app.rows.len() as u16;
 
     // Create the layout, a list and optionally a confirmation dialog
     let layout = Layout::default()
@@ -442,13 +456,16 @@ fn ui(app: &App, f: &mut Frame) {
         ])
         .split(area);
 
-    // Render the lines and spinners
     let mut list_items = vec![];
-    for (_, stateful_action) in &app.actions {
-        let mut line: Line = stateful_action.into();
-        if !app.should_quit && stateful_action.state == State::Running {
-            if let State::Running = stateful_action.state {
-                line.spans[0] = Span::raw(SPINNER_SYMBOLS[app.spinner_index]).blue();
+
+    // Render the lines and spinners
+    for row in &app.rows {
+        let mut line: Line = row.into();
+        if let Row::ActionRow(_, stateful_action) = row {
+            if !app.should_quit && stateful_action.state == State::Running {
+                if let State::Running = stateful_action.state {
+                    line.spans[0] = Span::raw(SPINNER_SYMBOLS[app.spinner_index]).blue();
+                }
             }
         }
         list_items.push(ListItem::new(line));
