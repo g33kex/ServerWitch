@@ -1,19 +1,24 @@
 use crossterm::event::KeyCode::Char;
 use crossterm::event::{EventStream, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::terminal::ScrollUp;
 use crossterm::ExecutableCommand;
 use futures_channel::mpsc::Receiver;
 use futures_channel::oneshot::Sender;
 use futures_util::stream::select_all;
 use futures_util::{future, StreamExt};
 use log::error;
-use ratatui::backend::{Backend, CrosstermBackend};
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::backend::{Backend, ClearType, CrosstermBackend};
+use ratatui::buffer::{Buffer, Cell};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{List, ListItem, Paragraph, Widget};
-use ratatui::{Frame, Terminal, Viewport};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Widget};
+use ratatui::{Frame, Terminal, TerminalOptions, Viewport};
+use std::borrow::Borrow;
 use std::collections::VecDeque;
 use std::io;
+use std::iter::repeat_with;
+use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
@@ -33,8 +38,17 @@ struct App {
     actions: VecDeque<(Uuid, StatefulAction)>,
     /// A queue of actions to be confirmed. Each action is a tuple containing the id of the next action, the next action, and optionally a sender to notify the app that the next action was accepted.
     pending_actions: VecDeque<(Uuid, StatefulAction, Option<Sender<bool>>)>,
-    view_height: u16,
+    /// The session id
+    session_id: Option<String>,
+    /// The current tui area. Will grow when adding items and stop at the terminal border
+    area: Rect,
+    /// The space to leave for UI before showing actions on top of the area
+    top_margin: u16,
+    /// The space to leave for UI after showing actions on the bottom of the area
+    bottom_margin: u16,
+    /// Quit the app if true
     should_quit: bool,
+    /// Index of the current symbol of the spinner
     spinner_index: usize,
 }
 
@@ -47,11 +61,14 @@ enum Event {
 }
 
 impl App {
-    fn new(view_height: u16) -> App {
+    fn new(area: Rect) -> App {
         App {
             actions: VecDeque::new(),
             pending_actions: VecDeque::new(),
-            view_height,
+            session_id: None,
+            area,
+            top_margin: 0,
+            bottom_margin: 0,
             should_quit: false,
             spinner_index: 0,
         }
@@ -101,17 +118,43 @@ pub async fn run(rx: Receiver<ActionMessage>) -> Result<(), Error> {
     crossterm::terminal::enable_raw_mode()?;
     let stdout = io::stdout();
     let backend = CrosstermBackend::new(stdout);
-    let view_height = backend.size()?.height / 2;
 
-    let mut app = App::new(view_height);
+    let mut height = 0;
+    let mut terminal = Terminal::new(backend)?;
+    // let mut terminal = Terminal::with_options(
+    //     backend,
+    //     TerminalOptions {
+    //         viewport: Viewport::Inline((height)),
+    //     },
+    // )?;
+    //
+    // let mut cursor_pos = terminal.backend_mut().get_cursor()?;
+    //
+    // terminal.insert_before(1, |buf| {
+    //     Paragraph::new("Hello world").render(buf.area, buf);
+    // });
+    //
+    // let old_area = terminal.current_buffer_mut().area().clone();
+    // terminal.resize(Rect::new(
+    //     old_area.x,
+    //     old_area.y,
+    //     old_area.width,
+    //     old_area.height + 5,
+    // ))?;
+    // terminal.draw(|f| {
+    //     let p = Paragraph::new("This is a test")
+    //         .block(Block::default().title("Test").borders(Borders::all()));
+    //     f.render_widget(p, f.size());
+    // });
+    //
+    // terminal.set_cursor(cursor_pos.0, cursor_pos.1 + 1);
+    // return Ok(());
 
-    let mut terminal = Terminal::with_options(
-        backend,
-        ratatui::TerminalOptions {
-            viewport: Viewport::Inline(view_height),
-        },
-    )?;
-    terminal.hide_cursor()?;
+    let cursor_pos = terminal.get_cursor()?;
+    let initial_area = Rect::new(0, cursor_pos.1, terminal.size()?.width, 0);
+    let mut app = App::new(initial_area);
+
+    // terminal.show_cursor()?;
 
     // Crossterm events
     let reader = EventStream::new()
@@ -146,10 +189,11 @@ pub async fn run(rx: Receiver<ActionMessage>) -> Result<(), Error> {
                     .draw(|f| ui(&app, f))
                     .map_err(|e| error!("Error: {}", e))
                     .ok();
-                terminal
-                    .hide_cursor()
-                    .map_err(|e| error!("Error: {}", e))
-                    .ok();
+                // terminal
+                //     .hide_cursor()
+                //     .map_err(|e| error!("Error: {}", e))
+                //     .ok();
+                terminal.show_cursor();
 
                 // Stop early if the app should exit
                 future::ready((!app.should_quit).then_some(()))
@@ -159,10 +203,12 @@ pub async fn run(rx: Receiver<ActionMessage>) -> Result<(), Error> {
         .await;
 
     // Restore terminal state
-    terminal
-        .backend_mut()
-        .execute(crossterm::terminal::ScrollUp(1))?
-        .execute(crossterm::cursor::MoveToColumn(0))?;
+    terminal.set_cursor(0, app.area.bottom());
+    if app.area.height > 0 && app.area.bottom() == terminal.size()?.bottom() {
+        terminal
+            .backend_mut()
+            .execute(crossterm::terminal::ScrollUp(1))?;
+    }
     terminal.show_cursor()?;
     crossterm::terminal::disable_raw_mode()?;
 
@@ -183,8 +229,70 @@ fn process_message(message: ActionMessage) -> Option<Event> {
     Some(Event::Message(message))
 }
 
+/// This function scrolls up the terminal and the internal buffer
+fn scroll(
+    terminal: &mut Terminal<CrosstermBackend<impl std::io::Write>>,
+    height: u16,
+) -> io::Result<()> {
+    terminal.backend_mut().execute(ScrollUp(height))?;
+
+    // Scroll the internal buffer to avoid unnecessary redraws
+    let mut buffer = terminal.current_buffer_mut();
+    let offset = (buffer.area().height.min(height) * buffer.area().width) as usize;
+    buffer.content.drain(0..offset);
+    buffer
+        .content
+        .extend(repeat_with(|| Cell::default()).take(offset));
+    terminal.swap_buffers();
+    Ok(())
+}
+/// This function insert lines in the history of the terminal (outside of the view)
+/// We're using the top of the terminal to render the lines, then scroll them out of view
+fn insert_before<F>(
+    app: &mut App,
+    terminal: &mut Terminal<CrosstermBackend<impl std::io::Write>>,
+    height: u16,
+    draw_fn: F,
+) -> io::Result<()>
+where
+    F: FnOnce(&mut Buffer),
+{
+    // Draw contents into buffer
+    let area = Rect {
+        x: app.area.left(),
+        y: 0,
+        width: app.area.width,
+        height,
+    };
+    let mut buffer = Buffer::empty(area);
+    draw_fn(&mut buffer);
+    // Draw the buffer in the terminal
+    terminal
+        .backend_mut()
+        .draw(buffer.content.iter().enumerate().map(|(i, c)| {
+            let (x, y) = buffer.pos_of(i);
+            (x, y, c)
+        }))?;
+    terminal.backend_mut().flush()?;
+    // Scroll up
+    scroll(terminal, height);
+    // Clear the lines we used so that they're redrawn
+    let mut buffer = Buffer::empty(area);
+    terminal
+        .backend_mut()
+        .draw(buffer.content.iter().enumerate().map(|(i, c)| {
+            let (x, y) = buffer.pos_of(i);
+            (x, y, c)
+        }))?;
+    Ok(())
+}
+
 // Update the internal state of the app. This should never fail.
-fn update(app: &mut App, terminal: &mut Terminal<impl Backend>, event: Event) {
+fn update(
+    app: &mut App,
+    terminal: &mut Terminal<CrosstermBackend<impl std::io::Write>>,
+    event: Event,
+) {
     match event {
         Event::Key(key) => match key.code {
             Char('q') => {
@@ -217,6 +325,47 @@ fn update(app: &mut App, terminal: &mut Terminal<impl Backend>, event: Event) {
                             .ok();
                     }
                 }
+            }
+            Char('r') => {
+                let new_action = StatefulAction {
+                    action: Action::Command {
+                        command: String::from("ls -lah"),
+                    },
+                    state: State::Running,
+                };
+                app.actions.push_back((Uuid::new_v4(), new_action));
+            }
+            Char('x') => {
+                let new_action = StatefulAction {
+                    action: Action::Write {
+                        path: PathBuf::from("/home/test/test.txt"),
+                        content: String::from("This is a long content\nIt has newlines, and it is wayyy bigger than the screen so it will probably get cut off but it's fine, we're testing stuff here. I want to see how it goes off the screen and what we can do to fix it."),
+                    },
+                    state: State::Canceled,
+                };
+                app.actions.push_back((Uuid::new_v4(), new_action));
+                let new_action = StatefulAction {
+                    action: Action::Read {
+                        path: PathBuf::from("/home/test/test.txt"),
+                    },
+                    state: State::Finished,
+                };
+                app.actions.push_back((Uuid::new_v4(), new_action));
+            }
+            Char('s') => {
+                scroll(terminal, 3);
+            }
+            Char('d') => {
+                app.pending_actions.push_back((
+                    Uuid::new_v4(),
+                    StatefulAction {
+                        action: Action::Command {
+                            command: String::from("cat /etc/passwd"),
+                        },
+                        state: State::Pending,
+                    },
+                    None,
+                ));
             }
             _ => (),
         },
@@ -259,42 +408,66 @@ fn update(app: &mut App, terminal: &mut Terminal<impl Backend>, event: Event) {
                 }
             }
             ActionMessage::NewSession(session_id) => {
-                terminal
-                    .insert_before(1, |buf| {
-                        Paragraph::new(Line::from(format!("Session id: {}", session_id)))
-                            .render(buf.area, buf);
-                    })
-                    .map_err(|e| error!("Error inserting line in terminal: {}", e))
-                    .ok();
+                app.session_id = Some(session_id);
             }
         },
     }
 
-    while app.actions.len() > app.view_height as usize - 2 {
-        if let Some((_, stateful_action)) = app.actions.pop_front() {
-            terminal
-                .insert_before(1, |buf| {
-                    let line: Line = (&stateful_action).into();
-                    Paragraph::new(line).render(buf.area, buf);
-                })
-                .map_err(|e| error!("Error inserting line in terminal: {}", e))
-                .ok();
+    app.top_margin = if app.session_id.is_some() { 1 } else { 0 };
+    app.bottom_margin = if app.pending_actions.len() > 0 { 2 } else { 0 };
+
+    // If the actions don't fit into the screen area we need to either grow the screen area
+    // or scroll some actions out of the screen area.
+    // This should probably be implemented as a custom viewport, but it will work for now
+    while app.actions.len() as i64
+        > (app.area.height as i64 - app.top_margin as i64 - app.bottom_margin as i64)
+    {
+        // If there is still space in the terminal, grow the area towards the bottom
+        if app.area.bottom() < terminal.size().unwrap().bottom() {
+            app.area.height += 1;
+            continue;
+        }
+        // There is no space left at the bottom, we need to scroll up
+        // We need to first clear the bottom margin
+        terminal.set_cursor(0, app.area.bottom() - app.bottom_margin);
+        terminal
+            .backend_mut()
+            .clear_region(ratatui::backend::ClearType::AfterCursor);
+        // Maybe we can use space above
+        if app.area.y > 0 {
+            app.area.y -= 1;
+            app.area.height += 1;
+            scroll(terminal, 1);
+        }
+        // If there is no space left, we need to push an action out of view
+        else if let Some((_, stateful_action)) = app.actions.pop_front() {
+            // This requires redrawing the action as completed before pushing it out of view
+            insert_before(app, terminal, 1, |buf| {
+                let line: Line = (&stateful_action).into();
+                Paragraph::new(line).render(buf.area, buf);
+            });
         }
     }
 }
 
 fn ui(app: &App, f: &mut Frame) {
-    let area = f.size();
+    let area = app.area;
+
     let height = app.actions.len() as u16;
-    let has_next_action = app.pending_actions.len() > 0;
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(vec![
+            Constraint::Length(app.top_margin),
             Constraint::Length(height),
-            Constraint::Length(if has_next_action { 2 } else { 0 }),
+            Constraint::Length(app.bottom_margin),
         ])
         .split(area);
+
+    if let Some(session_id) = &app.session_id {
+        let paragraph = Paragraph::new(format!("Session id: {}", session_id));
+        f.render_widget(paragraph, layout[0]);
+    }
 
     let mut list_items = vec![];
     for (_, stateful_action) in &app.actions {
@@ -306,19 +479,14 @@ fn ui(app: &App, f: &mut Frame) {
         }
         list_items.push(ListItem::new(line));
     }
-    let list = List::new(list_items);
-    f.render_widget(list, layout[0]);
+    let list = List::new(list_items); //.block(Block::default().title("List").borders(Borders::all()));
+    f.render_widget(list, layout[1]);
 
     if let Some((_, next_action, _)) = app.pending_actions.front() {
         let confirmation = Paragraph::new(vec![
             next_action.into(),
             Line::from("Are you sure you want to do this? [y/n]"),
         ]);
-        f.render_widget(confirmation, layout[1]);
+        f.render_widget(confirmation, layout[2]);
     }
-
-    f.set_cursor(
-        0,
-        area.top() + (height as u16).saturating_sub(if has_next_action { 0 } else { 1 }),
-    );
 }
